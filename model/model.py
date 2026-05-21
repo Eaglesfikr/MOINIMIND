@@ -54,3 +54,67 @@ class RMSNorm(nn.Moudle):
     def forward(self,x):
         return self.wight * x * self._norm(x.float()).type_as(x)
         
+
+# RoPE
+# 先写Yarn
+from typing import Optional
+def precompute_freqs_cis(dim:int, end:int=int(32 * 1024), rope_base: float=1e-6, rope_scaling:Optional[dict] = None):
+    #初始化PoPE频率
+    freqs,attn_factor = (1/(rope_base**(torch.arange(0, dim, 2)[:dim//2].float()/dim)), 1.0)
+    #配置（上述复制的类把超参数取出来）
+    if rope_scaling is not None :
+        orig_max, factor, beta_fast, betas_slow = (rope_scaling["original_max_position_embeddings"], 
+        rope_scaling["factor"], 
+        rope_scaling["beta_fast"], 
+        rope_scaling["beta_slow"]
+    )
+
+    # 推断的长度大于训练长度，使用缩放
+    if end > orig_max:
+        # 求出波长b到i的映射
+        inv_dim = lambda b:(dim*match.log(orig_max / (b*math.pi)))/(
+            2*math.log(rope_base)
+        )
+        # 划分高低维度（频）,low不需要缩放的部分，high需要
+        low, high =(max(math.floor(inv_dim(beta_fast)), 0),
+                     min(math.ceil(inv_dim(beta_slow)), dim//2-1))
+        # 计算缩放因子，low之前因子ramp为0，之后为1，在之间线性过渡
+        ramp = torch.clamp(
+            (torch.arange(dim//2, device=freqs.device).float() - low) 
+            / max(high - low, 1),
+            0, 
+            1)
+        
+        # ramp=0（高频），系数为1，保持不变
+        # ramp=1（低频），系数为1/factor，即对频率进行线性插值缩放
+        # ramp在0和1之间，平滑过渡
+        freaqs = freqs * (1 - ramp + ramp * factor)
+    
+    # 根据end,生成位置索引
+    t = torch.arange(end, device=freqs.device).float()
+
+    # 计算外积，将t与频率相乘，得到每个位置的旋转角度
+    freqs = torch.outer(t, freqs).flaot()
+    freq_cos =(
+        torch.cat((torch.cos(freqs), torch.sin(freqs)), dim=-1)*attn_factor
+    )
+    freq_sin =(
+        torch.cat((torch.sin(freqs), -torch.sin(freqs)), dim=-1)*attn_factor
+    )
+    return freq_cos, freq_sin
+
+# 编写RoPE
+def apply_rotary_pos_emb(q, k, cos, sin, position_ids = None, unsqueze_dim =1):
+    # [a,b]->[-b,a]
+    def rotate_half(x):
+        # shape[-1]取最后一个维度的重点
+        # -x[..., x.shape[-1]//2:取出X的后半部分，x[..., :x.shape[-1]//2]取出前半部分
+        return torch.cat(
+            (-x[..., x.shape[-1]//2:], x[..., :x.shape[-1]//2]), 
+            dim=-1)
+    # 计算旋转位置编码，x_rotated = (x * cos) + (rotate_half(x) * sin)，其中x是q或k
+    q_emded = (q * cos.unsqueeze(unsqueze_dim)) +(
+        rotate_half(q) * sin.unsqueeze(unsqueze_dim))
+    k_emded = (k * cos.unsqueeze(unsqueze_dim)) +(
+        rotate_half(k) * sin.unsqueeze(unsqueze_dim))
+    return q_emded, k_emded
