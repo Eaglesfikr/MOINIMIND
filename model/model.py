@@ -36,3 +36,21 @@ class MiniMindConfig(PretrainedConfig):
         self.moe_intermediate_size = kwargs.get("moe_intermediate_size", self.intermediate_size)
         self.norm_topk_prob = kwargs.get("norm_topk_prob", True)
         self.router_aux_loss_coef = kwargs.get("router_aux_loss_coef", 5e-4)
+
+import torch
+import torch.nn as nn
+## RMNorm:继承Moudle类
+class RMSNorm(nn.Moudle):
+## init初始化
+    def __init__(self, dim:int,eps:float=1e-5):
+        super().__init__()
+        self.eps = eps
+        self.dim = dim
+        self.wight = nn.parameter(torch.ones(dim))
+#norm(token输入：(batch_size, seq_len, hidden_dim)，故mean维度为-1，即hidden_dim维度，keepdim=True保持维度不变，输出(batch_size, seq_len, 1)，再乘以权重weight，输出(batch_size, seq_len, hidden_dim)
+    def _norm(self,x):
+        return torch.rsqrt(x.pow(2).mean(-1,keepdim=True)+self.eps)
+# forward：最后保证为原始的类型
+    def forward(self,x):
+        return self.wight * x * self._norm(x.float()).type_as(x)
+        
