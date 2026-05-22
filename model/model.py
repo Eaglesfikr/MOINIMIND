@@ -57,13 +57,14 @@ class RMSNorm(nn.Moudle):
 
 # RoPE
 # 先写Yarn
-from typing import Optional
+from typing import Optional, Tuple
+import math
 def precompute_freqs_cis(dim:int, end:int=int(32 * 1024), rope_base: float=1e-6, rope_scaling:Optional[dict] = None):
     #初始化PoPE频率
     freqs,attn_factor = (1/(rope_base**(torch.arange(0, dim, 2)[:dim//2].float()/dim)), 1.0)
     #配置（上述复制的类把超参数取出来）
     if rope_scaling is not None :
-        orig_max, factor, beta_fast, betas_slow = (rope_scaling["original_max_position_embeddings"], 
+        orig_max, factor, beta_fast, beta_slow = (rope_scaling["original_max_position_embeddings"], 
         rope_scaling["factor"], 
         rope_scaling["beta_fast"], 
         rope_scaling["beta_slow"]
@@ -72,7 +73,7 @@ def precompute_freqs_cis(dim:int, end:int=int(32 * 1024), rope_base: float=1e-6,
     # 推断的长度大于训练长度，使用缩放
     if end > orig_max:
         # 求出波长b到i的映射
-        inv_dim = lambda b:(dim*match.log(orig_max / (b*math.pi)))/(
+        inv_dim = lambda b:(dim*math.log(orig_max / (b*math.pi)))/(
             2*math.log(rope_base)
         )
         # 划分高低维度（频）,low不需要缩放的部分，high需要
@@ -118,3 +119,102 @@ def apply_rotary_pos_emb(q, k, cos, sin, position_ids = None, unsqueze_dim =1):
     k_emded = (k * cos.unsqueeze(unsqueze_dim)) +(
         rotate_half(k) * sin.unsqueeze(unsqueze_dim))
     return q_emded, k_emded
+
+# K和V的复制
+def repeat_kv(x:torch.Tensor, n_rep:int)->torch.Tensor:
+    # x的形状为(batch_size, seq_len, num_key_value_heads, head_dim)
+    bs, slen, num_key_value_heads, head_dim = x.shape
+    if n_rep == 1:
+        return x
+    return (
+        x[:,:,:,None,:].expand(bs, slen, num_key_value_heads, n_rep, head_dim)
+        .reshape(bs, slen, num_key_value_heads * n_rep, head_dim)
+    )
+
+from torch.nn import functional as F
+class Attention(nn.Module):
+    def __init__(self, args: MiniMindConfig):
+        super().__init__()
+        
+        self.num_key_value_heads = args.num_attention_heads if args.num_key_value_heads is None else args.num_key_value_heads
+        assert args.num_attention_heads % self.num_key_value_heads == 0,"num_attention_heads must be divisible by num_key_value_heads"
+        self.n_local_heads = args.num_attention_heads
+        # self.num_key_value_heads = args.num_key_value_heads
+        self.n_rep = self.n_local_heads // self.num_key_value_heads
+        self.head_dim = args.head_dim
+
+        self.q_proj = nn.Linear(args.hidden_size, args.num_attention_heads *self.head_dim, bias=False)
+        self.k_proj = nn.Linear(args.hidden_size, self.num_key_value_heads *self.head_dim, bias=False)
+        self.v_proj = nn.Linear(args.hidden_size, self.num_key_value_heads *self.head_dim, bias=False)
+        self.o_proj = nn.Linear(args.num_attention_heads *self.head_dim, args.hidden_size, bias=False)
+
+        self.attn_dropout = nn.Dropout(args.dropout)
+        self.n_resid_dropout = nn.Dropout(args.dropout)
+        self.dropout = args.dropout
+
+        self.flash = hasattr(torch.nn.functional, "scaled_dot_product_attention") and args.flash_attn
+
+    
+    def forward(self, 
+                x:torch.Tensor, 
+                position_embdding: Tuple[torch.Tensor, torch.Tensor], 
+                past_key_value: Optional[Tuple[torch.Tensor, torch.Tensor]] = None, #一个元组，有序，包含两个元素，分别是过去的键和值的张量,每个都是形状为[B, H, T_past, D]的张量
+                use_cache: bool = False, 
+                attention_mask: Optional[torch.Tensor] = None
+                )->torch.Tensor:
+        # x的形状为(batch_size, seq_len, hidden_dim)
+    # 投影，计算Q,K,V
+        bsz, seq_len, _ = x.shape
+        xq,xk,xv = self.q_proj(x), self.k_proj(x), self.v_proj(x)
+    # 把输入拆分为多个头，使用view
+        xq =xq.view(bsz,seq_len,self.n_local_heads, self.head_dim)
+        xk =xk.view(bsz,seq_len,self.num_key_value_heads, self.head_dim)
+        xv =xv.view(bsz,seq_len,self.num_key_value_heads, self.head_dim)
+    # Q和K进行旋转位置编码RoPE
+        cos,sin = position_embdding
+        xq,xk = apply_rotary_pos_emb(xq,xk,cos[:seq_len],sin[:seq_len])
+    # K和V进行复制，使得每个头都有对应的K和V
+        if past_key_value is not None:
+            xk = torch.cat((past_key_value[0], xk), dim=1)
+            xv = torch.cat((past_key_value[1], xv), dim=1)
+        past_key_value = (xk, xv) if use_cache else None #不推理一开始就不进，前面这个就为空，这里的use只是判断进不进
+
+        xq,xk,xv =(
+            xq.transpose(1,2), # (bsz, n_local_heads, seq_len, head_dim),记得交换一下注意力头数和序列长的维度，每个头都看的见整个序列的计算，下同
+            repeat_kv(xk, self.n_rep).transpose(1,2), # (bsz, num_key_value_heads*n_rep, seq_len_kv, head_dim) ,
+            repeat_kv(xv, self.n_rep).transpose(1,2)  # (bsz, num_key_value_heads*n_rep, seq_len_kv, head_dim)
+        ) 
+    # 计算注意力得分
+        if self.flash and seq_len>1 and (attention_mask is None or torch.all(
+            attention_mask == 1)):
+            # 官方的高速实现
+            attn_mask = (
+                None 
+                if attention_mask is None 
+                else attention_mask.view(bsz, 1, 1, -1).expand(-1, self.n_local_heads, 
+                                                               seq_len, -1, -1)
+            )
+            output = F.scaled_dot_product_attention(xq, xk, xv, attn_mask = attn_mask, 
+                                                    dropout_p=self.dropout if self.training else 0.0,is_causal=True)
+        else:# 上述是官方的，直接复制，我们自己的走这里
+            scores = (xq @ xk.transpose(-2,-1)) / math.sqrt(self.head_dim)
+            scores = scores + torch.triu(
+                torch.full((seq_len, seq_len), float('-inf'),device = scores.device),
+                diagonal=1
+            ).unsqueeze(0).unsqueeze(0)
+    
+            # 扩展的mask：消除之前tokenr为了序列同长补充的padding影响
+            if attention_mask is not None: 
+                extended_attention_mask = attention_mask.unsqueeze(1).unsqueeze(2)
+                extended_attention_mask = (1.0 - extended_attention_mask) * -1e9
+                scores = scores + extended_attention_mask
+    # 多个头拼接，输出投影，返回
+            scores = F.softmax(scores.float(), dim=-1).type_as(xq)
+            scores = self.attn_dropout(scores)
+            output = scores @ xv
+        
+        # [bsz,n_local_heads, seq_len, head_dim] -> [bsz, seq_len, n_local_heads*head_dim]
+        output = output.transpose(1,2).reshape(bsz,seq_len,-1)
+        output = self.n_resid_dropout(self.o_proj(output)) #最后的线性层不要忘记了
+        return output, past_key_value
+    
