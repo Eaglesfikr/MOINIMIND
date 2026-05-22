@@ -246,3 +246,36 @@ class FeedForward(nn.Module):
         return self.dropout(
             self.down_proj(self.act_fn(self.up_proj(x)) * self.gate_proj(x))
         )
+    
+
+# 好了，现在已经完成了想要的模块，直接把其拼成一个block就行
+class MokioMindBlock(nn.Module):
+    def __init__(self, layer_id: int, args: MiniMindConfig):
+        super().__init__()
+        self.num_attention_heads = args.num_attention_heads
+        self.hidden_size = args.hidden_size
+        self.head_dim = args.head_dim
+        self.self_attn = Attention(args) #注意力模块
+
+        self.layer_id = layer_id # MOE会用到
+        self.input_layernorm = RMSNorm(args.hidden_size, eps=args.rms_norm_eps)
+        self.post_attention_layernorm = RMSNorm(args.hidden_size, eps=args.rms_norm_eps)
+        self.mlp = FeedForward(args)
+
+    def forward(self, hidden_states, position_embeddings, past_key_value=None, 
+                use_cache=False, attention_mask=None):
+        # 注意力模块
+        residual = hidden_states
+        hidden_states, present_key_value = self.self_attn(
+            self.input_layernorm(hidden_states),
+            position_embeddings,
+            past_key_value,
+            use_cache,
+            attention_mask,
+        )
+        hidden_states = residual + hidden_states # 残差连接
+        # FFN模块
+        hidden_states = hidden_states + self.mlp(
+            self.post_attention_layernorm(hidden_states)
+            )
+        return hidden_states, present_key_value
