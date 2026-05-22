@@ -57,7 +57,7 @@ class RMSNorm(nn.Moudle):
 
 # RoPE
 # 先写Yarn
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Union
 import math
 def precompute_freqs_cis(dim:int, end:int=int(32 * 1024), rope_base: float=1e-6, rope_scaling:Optional[dict] = None):
     #初始化PoPE频率
@@ -343,5 +343,57 @@ class MokioMindModel(nn.Module):
             presents.append(present) #把每层的K和V都保存下来，最后一起返回
     
         hidden_states =self.norm(hidden_states) #最后的RMSNorm
-        ##剩下的linear，softmax和toknizer解码器先不做
+        ##剩下的linear，softmax和toknizer解码器先不做,放到下面做
         return hidden_states, presents
+    
+
+#封装成一个更高层的接口，方便后续添加语言模型头或者其他任务的头,即inear和foftmax层
+from transformers import PretrainedModel, GenerationMixin, CausalLMOutputWithPast   
+class mokioMindForCausalLM(PretrainedModel, GenerationMixin):
+    config_class = MiniMindConfig
+    def __init__(self, config: MiniMindConfig):
+        self.config = config
+
+        super().__init__(config) #必须在上一句之后，因为这个父类定义一个confi需要我们自己定义一个config信息
+        self.model = MokioMindModel(config) #实例化，config传入
+
+        self.lm_head = nn.Linear(
+            self.config.hidden_size, self.config.vocab_size, bias=False) #语言模型头，输入是transformer的输出，输出是每个token的概率分布
+        #于是我们512维的隐藏层能够映射安东6400多个词的词表上，表示出每个词的概率
+
+        self.model.embed_tokens.weight = self.lm_head.weight #权重共享，输入的embedding和输出的lm_head共享权重，计算更加简单
+
+        self.OUT = CausalLMOutputWithPast() #这个是transformers库里定义的一个输出类，包含了语言模型输出需要的几个字段，比如logits和past_key_values等
+
+        def forward(
+                self,
+                input_ids: Optional[torch.Tensor] = None,
+                attention_mask: Optional[torch.Tensor] = None,
+                past_key_values: Optional[Tuple[torch.Tensor, torch.Tensor]] = None,
+                use_cache: bool = False,
+                logits_to_keep: Union [int, torch.Tensor] = 0, # 这个参数是为了支持只返回前k个token的logits，减少计算量和内存占用，-1表示返回全部
+                **args, # 其他补充的参数
+        ):
+            hidden_states, past_key_values = self.model(
+                input_ids = input_ids,
+                attention_mask = attention_mask,
+                past_key_values = past_key_values,
+                use_cache = use_cache,
+                **args,
+            )
+            #如果我们的logits_to_keep是一个整数，表示只保留前k个token的logits，那么我们就把hidden_states的最后一个维度切片，只保留前k个token的logits
+            # 作用：生成时只需要最后的logits来预测下一个token
+            slice_indices = (
+                slice(-logits_to_keep, None)
+                if isinstance(logits_to_keep,int)
+                else logits_to_keep #如果不是int类型而是一个tensor，那么等于0，表示不切片，保留所有位置返回全部logits
+                )
+            logits = self.lm_head(hidden_states[:,slice_indices,:])
+
+            # 最后输出的对象有哪些
+            self.OUT.__setitem__("last_hidden_state",hidden_states) 
+            self.OUT.__setitem__("logits",logits) 
+            self.OUT.__setitem__("past_key_values",past_key_values)
+
+            return self.OUT 
+            
