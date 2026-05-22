@@ -49,7 +49,7 @@ class RMSNorm(nn.Moudle):
         self.wight = nn.parameter(torch.ones(dim))
 #norm(token输入：(batch_size, seq_len, hidden_dim)，故mean维度为-1，即hidden_dim维度，keepdim=True保持维度不变，输出(batch_size, seq_len, 1)，再乘以权重weight，输出(batch_size, seq_len, hidden_dim)
     def _norm(self,x):
-        return torch.rsqrt(x.pow(2).mean(-1,keepdim=True)+self.eps)
+        return x*torch.rsqrt(x.pow(2).mean(-1,keepdim=True)+self.eps)
 # forward：最后保证为原始的类型
     def forward(self,x):
         return self.wight * x * self._norm(x.float()).type_as(x)
@@ -158,7 +158,7 @@ class Attention(nn.Module):
     
     def forward(self, 
                 x:torch.Tensor, 
-                position_embdding: Tuple[torch.Tensor, torch.Tensor], 
+                position_embedding: Tuple[torch.Tensor, torch.Tensor], 
                 past_key_value: Optional[Tuple[torch.Tensor, torch.Tensor]] = None, #一个元组，有序，包含两个元素，分别是过去的键和值的张量,每个都是形状为[B, H, T_past, D]的张量
                 use_cache: bool = False, 
                 attention_mask: Optional[torch.Tensor] = None
@@ -172,7 +172,7 @@ class Attention(nn.Module):
         xk =xk.view(bsz,seq_len,self.num_key_value_heads, self.head_dim)
         xv =xv.view(bsz,seq_len,self.num_key_value_heads, self.head_dim)
     # Q和K进行旋转位置编码RoPE
-        cos,sin = position_embdding
+        cos,sin = position_embedding
         xq,xk = apply_rotary_pos_emb(xq,xk,cos[:seq_len],sin[:seq_len])
     # K和V进行复制，使得每个头都有对应的K和V
         if past_key_value is not None:
@@ -284,6 +284,7 @@ class MokioMindBlock(nn.Module):
 class MokioMindModel(nn.Module):
     def __init__(self, args: MiniMindConfig):
         super().__init__()
+        self.config = args
         self.vocab_size, self.num_hidden_layers = (#字符表大小，Transformer block层数
             args.vocab_size,
             args.num_hidden_layers
@@ -363,7 +364,7 @@ class mokioMindForCausalLM(PretrainedModel, GenerationMixin):
 
         self.model.embed_tokens.weight = self.lm_head.weight #权重共享，输入的embedding和输出的lm_head共享权重，计算更加简单
 
-        self.OUT = CausalLMOutputWithPast() #这个是transformers库里定义的一个输出类，包含了语言模型输出需要的几个字段，比如logits和past_key_values等
+        # self.OUT = CausalLMOutputWithPast() #这个是transformers库里定义的一个输出类，包含了语言模型输出需要的几个字段，比如logits和past_key_values等
 
         def forward(
                 self,
@@ -391,9 +392,14 @@ class mokioMindForCausalLM(PretrainedModel, GenerationMixin):
             logits = self.lm_head(hidden_states[:,slice_indices,:])
 
             # 最后输出的对象有哪些
-            self.OUT.__setitem__("last_hidden_state",hidden_states) 
-            self.OUT.__setitem__("logits",logits) 
-            self.OUT.__setitem__("past_key_values",past_key_values)
+            # self.OUT.__setitem__("last_hidden_state",hidden_states) 
+            # self.OUT.__setitem__("logits",logits) 
+            # self.OUT.__setitem__("past_key_values",past_key_values)
 
-            return self.OUT 
+            # return self.OUT 
+            return CausalLMOutputWithPast(
+                logits = logits,
+                past_key_values = past_key_values,
+                hidden_states = hidden_states,
+            )
             
