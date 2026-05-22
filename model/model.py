@@ -132,6 +132,7 @@ def repeat_kv(x:torch.Tensor, n_rep:int)->torch.Tensor:
     )
 
 from torch.nn import functional as F
+from transformers.activations import ACT2FN
 class Attention(nn.Module):
     def __init__(self, args: MiniMindConfig):
         super().__init__()
@@ -218,3 +219,30 @@ class Attention(nn.Module):
         output = self.n_resid_dropout(self.o_proj(output)) #最后的线性层不要忘记了
         return output, past_key_value
     
+## FFN
+class FeedForward(nn.Module):
+    # 初始化
+    # 升维
+    # 降维
+    # 门控
+    # dropout
+    # 激活函数
+    def __init__(self, args: MiniMindConfig):
+        super().__init__()
+        if args.intermediate_size is None:
+            intermediate_size = int(args.hidden_size * 8/3) #同等规模下SWiLU要求升维的维度系数
+            args.intermediate_size = 64*((intermediate_size+64-1)//64) #为了效率，升维的维度最好是64的倍数
+        
+        self.up_proj = nn.Linear(args.hidden_size, args.intermediate_size, bias=False)
+        self.down_proj = nn.Linear(args.intermediate_size, args.hidden_size, bias=False)
+        # 门控机制：与升维的相同，
+        self.gate_proj = nn.Linear(args.hidden_size, args.intermediate_size, bias=False) 
+        self.dropout = nn.Dropout(args.dropout)
+        # SWiGLU激活函数，输入是升维后的张量，输出也是升维后的张量
+        self.act_fn = ACT2FN[args.hidden_act]
+
+    # 前向传播：一个升维经过激活一个不经过
+    def forward(self,x):
+        return self.dropout(
+            self.down_proj(self.act_fn(self.up_proj(x)) * self.gate_proj(x))
+        )
