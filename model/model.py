@@ -279,3 +279,69 @@ class MokioMindBlock(nn.Module):
             self.post_attention_layernorm(hidden_states)
             )
         return hidden_states, present_key_value
+    
+# 最后把block堆起来，形成模型主体
+class MokioMindModel(nn.Module):
+    def __init__(self, args: MiniMindConfig):
+        super().__init__()
+        self.vocab_size, self.num_hidden_layers = (#字符表大小，Transformer block层数
+            args.vocab_size,
+            args.num_hidden_layers
+        ) 
+        self.embed_tokens = nn.Embedding(args.vocab_size, args.hidden_size) #前面的linear映射到向量
+
+        self.dropout = nn.Dropout(args.dropout)
+        self.layers = nn.ModuleList( # 对应图中的Transformer重复k层
+            [MokioMindBlock(i, args) for i in range(args.num_hidden_layers)]
+        )
+
+        self.norm = RMSNorm(args.hidden_size, eps=args.rms_norm_eps) # k transformer layer后后的RMSNorm
+
+        # RoPE预计算
+        freqs_cos, freqs_sin = precompute_freqs_cis(
+            dim = args.head_dim, 
+            end = args.max_position_embeddings,
+            rope_base = args.rope_theta,
+            rope_scaling = args.rope_scaling
+        )
+        self.register_buffer("freqs_cos", freqs_cos,persistent=False) #persistent=False表示这个buffer不会被保存到模型的state_dict中，也就是说在保存和加载模型时，这个buffer不会被包含在内。这通常用于那些可以在运行时动态计算或重建的值，比如位置编码等。
+        self.register_buffer("freqs_sin", freqs_sin,persistent=False)
+
+    def forward(
+            self,
+            input_ids: torch.Tensor,
+            attention_mask: Optional[torch.Tensor] = None,
+            past_key_values: Optional[Tuple[torch.Tensor, torch.Tensor]] = None,
+            use_cache: bool = False,
+            **kwargs, # 其他补充的参数
+    ):
+        batch_size, seq_len = input_ids.shape
+
+        if hasattr(past_key_values, "layers"):
+            past_key_values = None # 兼容之前的版本，之前的版本是个对象，现在改成了一个元组
+
+        start_pos= (
+            past_key_values[0][0].shape[1] if past_key_values is not None else 0
+        )
+
+        hidden_states = self.embed_tokens(input_ids) #输入的token id映射到向量
+
+        position_embeddings = (self.freqs_cos[start_pos: start_pos + seq_len],
+                               self.freqs_sin[start_pos: start_pos + seq_len]) #根据输入序列的长度，截取对应位置的RoPE编码
+        
+        presents =[]
+        for layer_idx, (layer, past_key_value) in enumerate(
+            zip(self.layers, past_key_values)
+            ):
+            hidden_states, present = layer( #就是一层transformer block的前向传播，输入是上一层的输出，位置编码，过去的K和V，是否使用缓存，注意力掩码，输出是当前层的输出和当前层的K和V
+                hidden_states,
+                position_embeddings,
+                past_key_value,
+                use_cache,
+                attention_mask
+            )
+            presents.append(present) #把每层的K和V都保存下来，最后一起返回
+    
+        hidden_states =self.norm(hidden_states) #最后的RMSNorm
+        ##剩下的linear，softmax和toknizer解码器先不做
+        return hidden_states, presents
