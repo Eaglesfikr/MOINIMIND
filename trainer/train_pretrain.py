@@ -26,10 +26,10 @@ def train_epoch(epoch, loader, iters, start_step=0, wandb=None):
     last_step = start_step
     
     # 遍历数据批次循环
-    for step,(input_ids, attention_mask, labels) in enumerate(loader,start = start_step +1):
-        input_ids = input_ids.to(args.device)
-        attention_mask = attention_mask.to(args.device)
-        labels = labels.to(args.device)
+    for step, batch in enumerate(loader,start = start_step +1):
+        input_ids = batch["input_ids"].to(args.device)
+        attention_mask = batch["attention_mask"].to(args.device)
+        labels = batch["labels"].to(args.device)
 
         lr =get_lr(
             epoch*iter+step, args.epochs*iters, args.learning_rate
