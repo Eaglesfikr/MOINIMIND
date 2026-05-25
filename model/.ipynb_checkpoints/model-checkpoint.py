@@ -321,8 +321,10 @@ class MokioMindModel(nn.Module):
         if hasattr(past_key_values, "layers"):
             past_key_values = None # 兼容之前的版本，之前的版本是个对象，现在改成了一个元组
 
+        past_key_values = past_key_values or [None] * len(self.layers)
+        
         start_pos= (
-            past_key_values[0][0].shape[1] if past_key_values is not None else 0
+            past_key_values[0][0].shape[1] if past_key_values[0] is not None else 0
         )
 
         hidden_states = self.embed_tokens(input_ids) #输入的token id映射到向量
@@ -367,40 +369,47 @@ class mokioMindForCausalLM(PreTrainedModel, GenerationMixin):
 
         # self.OUT = CausalLMOutputWithPast() #这个是transformers库里定义的一个输出类，包含了语言模型输出需要的几个字段，比如logits和past_key_values等
 
-        def forward(
-                self,
-                input_ids: Optional[torch.Tensor] = None,
-                attention_mask: Optional[torch.Tensor] = None,
-                past_key_values: Optional[Tuple[torch.Tensor, torch.Tensor]] = None,
-                use_cache: bool = False,
-                logits_to_keep: Union [int, torch.Tensor] = 0, # 这个参数是为了支持只返回前k个token的logits，减少计算量和内存占用，-1表示返回全部
-                **args, # 其他补充的参数
-        ):
-            hidden_states, past_key_values = self.model(
-                input_ids = input_ids,
-                attention_mask = attention_mask,
-                past_key_values = past_key_values,
-                use_cache = use_cache,
-                **args,
+    def forward(
+            self,
+            input_ids: Optional[torch.Tensor] = None,
+            attention_mask: Optional[torch.Tensor] = None,
+            past_key_values: Optional[Tuple[torch.Tensor, torch.Tensor]] = None,
+            use_cache: bool = False,
+            logits_to_keep: Union [int, torch.Tensor] = 0, # 这个参数是为了支持只返回前k个token的logits，减少计算量和内存占用，-1表示返回全部
+            labels=None,
+            **args, # 其他补充的参数
+    ):
+        hidden_states, past_key_values = self.model(
+            input_ids = input_ids,
+            attention_mask = attention_mask,
+            past_key_values = past_key_values,
+            use_cache = use_cache,
+            **args,
+        )
+        #如果我们的logits_to_keep是一个整数，表示只保留前k个token的logits，那么我们就把hidden_states的最后一个维度切片，只保留前k个token的logits
+        # 作用：生成时只需要最后的logits来预测下一个token
+        slice_indices = (
+            slice(-logits_to_keep, None)
+            if isinstance(logits_to_keep,int)
+            else logits_to_keep #如果不是int类型而是一个tensor，那么等于0，表示不切片，保留所有位置返回全部logits
             )
-            #如果我们的logits_to_keep是一个整数，表示只保留前k个token的logits，那么我们就把hidden_states的最后一个维度切片，只保留前k个token的logits
-            # 作用：生成时只需要最后的logits来预测下一个token
-            slice_indices = (
-                slice(-logits_to_keep, None)
-                if isinstance(logits_to_keep,int)
-                else logits_to_keep #如果不是int类型而是一个tensor，那么等于0，表示不切片，保留所有位置返回全部logits
-                )
-            logits = self.lm_head(hidden_states[:,slice_indices,:])
+        logits = self.lm_head(hidden_states[:,slice_indices,:])
 
-            # 最后输出的对象有哪些
-            # self.OUT.__setitem__("last_hidden_state",hidden_states) 
-            # self.OUT.__setitem__("logits",logits) 
-            # self.OUT.__setitem__("past_key_values",past_key_values)
+        #得自己计算loss在模型中
+        loss = None
+        if labels is not None:
+            x, y = logits[..., :-1, :].contiguous(), labels[..., 1:].contiguous()
+            loss = F.cross_entropy(x.view(-1, x.size(-1)), y.view(-1), ignore_index=-100)
+        # 最后输出的对象有哪些
+        # self.OUT.__setitem__("last_hidden_state",hidden_states) 
+        # self.OUT.__setitem__("logits",logits) 
+        # self.OUT.__setitem__("past_key_values",past_key_values)
 
-            # return self.OUT 
-            return CausalLMOutputWithPast(
-                logits = logits,
-                past_key_values = past_key_values,
-                hidden_states = hidden_states,
-            )
+        # return self.OUT 
+        return CausalLMOutputWithPast(
+            loss=loss,
+            logits = logits,
+            past_key_values = past_key_values,
+            hidden_states = hidden_states,
+        )
             

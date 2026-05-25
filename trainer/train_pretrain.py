@@ -32,7 +32,7 @@ def train_epoch(epoch, loader, iters, start_step=0, wandb=None):
         labels = batch["labels"].to(args.device)
 
         lr =get_lr(
-            epoch*iter+step, args.epochs*iters, args.learning_rate
+            epoch * iters + step, args.epochs*iters, args.learning_rate
             )#计算当前学习率
         
         for param_group in optimizer.param_groups:
@@ -42,14 +42,15 @@ def train_epoch(epoch, loader, iters, start_step=0, wandb=None):
             #向前传播
             res = model(input_ids = input_ids, attention_mask = attention_mask, labels =labels)
             #计算loss
-            loss = res.loss + res.aux_loss#FOE的相关损失
+            # loss = res.loss + res.aux_loss
+            loss = res.loss #MOE的相关损失aux_loss要去掉，我们的对接LLM接口标准类和模型模块都没MOE功能
             #反向传播
             loss = loss /args.accumulation_steps #平均化损失，梯度累计
         scaler.scale(loss).backward()
             #梯度下降
         if (step+1)%args.accumulation_steps == 0:
-            scaler.unscale(optimizer) # 梯度裁剪前取消缩放
-            torch.nn.untils.clip_grad_norm_(model.parameters(),args.grad_clip)
+            scaler.unscale_(optimizer) # 梯度裁剪前取消缩放
+            torch.nn.utils.clip_grad_norm_(model.parameters(),args.grad_clip)
             scaler.step(optimizer)  #更新参数
             scaler.update()         #更新缩放器
             optimizer.zero_grad(set_to_none=True)   #清空梯度
@@ -58,8 +59,10 @@ def train_epoch(epoch, loader, iters, start_step=0, wandb=None):
         if step % args.log_interval == 0 or step == iters:
             spend_time = time.time() - start_time
             current_loss = loss.item() * args.accumulation_steps
-            current_aux_loss = res.aux_loss.item() if res.aux_loss is not None else 0.0
-            current_logits_loss = current_loss - current_aux_loss
+            # current_aux_loss = res.aux_loss.item() if res.aux_loss is not None else 0.0
+            current_aux_loss = 0.0 #当前非MOE
+            # current_logits_loss = current_loss - current_aux_loss
+            current_logits_loss = current_loss # 当前非MOE
             current_lr = optimizer.param_groups[-1]['lr']
             eta_min = spend_time / max(step - start_step, 1) * (iters - step) // 60
             Logger(f'Epoch:[{epoch + 1}/{args.epochs}]({step}/{iters}), loss: {current_loss:.4f}, logits_loss: {current_logits_loss:.4f}, aux_loss: {current_aux_loss:.4f}, lr: {current_lr:.8f}, epoch_time: {eta_min:.1f}min')
