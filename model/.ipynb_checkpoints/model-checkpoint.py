@@ -193,10 +193,12 @@ class Attention(nn.Module):
                 None 
                 if attention_mask is None 
                 else attention_mask.view(bsz, 1, 1, -1).expand(-1, self.n_local_heads, 
-                                                               seq_len, -1, -1)
+                                                               seq_len, -1).bool()
             )
             output = F.scaled_dot_product_attention(xq, xk, xv, attn_mask = attn_mask, 
                                                     dropout_p=self.dropout if self.training else 0.0,is_causal=True)
+        # if self.flash and (seq_len > 1) and (not self.is_causal or past_key_value is None) and (attention_mask is None or torch.all(attention_mask == 1)):
+        #     output = F.scaled_dot_product_attention(xq, xk, xv, dropout_p=self.dropout if self.training else 0.0, is_causal=self.is_causal)
         else:# 上述是官方的，直接复制，我们自己的走这里
             scores = (xq @ xk.transpose(-2,-1)) / math.sqrt(self.head_dim)
             scores = scores + torch.triu(
