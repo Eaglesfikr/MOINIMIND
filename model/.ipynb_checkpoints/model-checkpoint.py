@@ -31,11 +31,14 @@ class MiniMindConfig(PretrainedConfig):
             "type": "yarn"
         } if self.inference_rope_scaling else None
         ### MoE specific configs (ignored if use_moe = False)
-        self.num_experts = kwargs.get("num_experts", 4)
-        self.num_experts_per_tok = kwargs.get("num_experts_per_tok", 1)
-        self.moe_intermediate_size = kwargs.get("moe_intermediate_size", self.intermediate_size)
+        self.use_moe = kwargs.get("use_moe", False)
+        self.n_routed_experts = kwargs.get("num_experts", 4)
+        self.num_experts_per_tok = kwargs.get("num_experts_per_tok", 2)
+        self.n_shared_experts = kwargs.get("n_shared_experts", 1)
+        self.scoring_func = kwargs.get("scoring_func","softmax")
         self.norm_topk_prob = kwargs.get("norm_topk_prob", True)
-        self.router_aux_loss_coef = kwargs.get("router_aux_loss_coef", 5e-4)
+        self.seq_aux = kwargs.get("seq_aux", True)
+        self.aux_loss_alpha = kwargs.get("aux_loss_alpha", 0.01)
 
 import torch
 import torch.nn as nn
@@ -250,6 +253,185 @@ class FeedForward(nn.Module):
         )
     
 
+from torch.nn import init    
+# MOE Gates
+class MoEGate(nn.Module):
+    def __init__(self, config: MiniMindConfig):
+        super().__init__()
+        self.config = config
+        self.top_k = config.num_experts_per_tok #每个token选择几个专家
+        self.n_routed_experts = config.n_routed_experts # 可路由专家总数，有几个候选专家
+
+        self.scoring_func = config.scoring_func # 损失函数，这里后面只有softmax，把logits转化为概率
+        self.alpha = config.aux_loss_alpha # loss = loss + α * aux_loss的α
+        self.seq_aux = config.seq_aux # 是否按sequence做辅助loss
+
+        self.norm_topk_prob = config.norm_topk_prob # Top-K后是否重新归一化概率,不然原先做的softmax取出topk后总和不为1
+                                                    # 了，能量变小
+        self.gating_dim = config.hidden_size    # Gate输入维度
+        self.weight = nn.Parameter(
+            torch.empty((self.n_routed_experts, self.gating_dim))
+        )
+        self.reset_parameters()
+
+    def reset_parameters(self) -> None:  #何凯明（残差提出者）提出的初始化方法有利于模型训练
+        init.kaiming_uniform_(self.weight, a=math.sqrt(5))
+
+    def forward(self, hidden_states):
+        bsz, seq_len, h= hidden_states.shape
+        hidden_states = hidden_states.view(-1,h) # [bsz, slen, hiddendim] ->[bsz*slen=num_tokens, hiddendim] 
+        logits = F.linear(hidden_states, self.weight, None) # @W(h,n_experts),计算每个专家分数[bsz*slen=num_tokens, hiddendim] ->[num_tokens, n_experts]
+
+        if self.scoring_func == "softmax":
+            scores = logits.softmax(dim=-1) # 对各专家的分数变成概率，softmax不会改变形状，只会把“数值”变成概率分布
+        else:
+            raise NotImplementedError(
+                f"insupportable scoring function for MoE gating: {self.scoring_func}"
+            )
+        
+        top_weight, topk_idx = torch.topk(scores, k=self.top_k, dim=-1, sorted=False) # 取出最大的topk值和其索引，
+                                                                                        # topk_idx:[1, 5]topk_weight:[0.7, 0.2]，
+                                                                                        # 其大小都为[bsz * seq_len, top_k]
+
+        if self.top_k > 1 and self.norm_topk_prob: # 取出topk需要重新归一归一化
+            denominator = topk_weight.sum(dim=-1, keepdim=True) + 1e-20 # 防止除以0下面
+            topk_weight = topk_weight / denominator
+        
+        if self.training and self.alpha > 0.0: # 辅助损失aux_loss计算，想让所有专家都被使用，即token分布尽量均匀
+            scores_for_aux = scores
+            aux_topk = self.top_k
+            topk_idx_for_aux_loss = topk_idx.view(bsz, -1) # 把所有token重新按batch组织回来
+            if self.seq_aux: # sequence级均衡，先看下面的batch级，这里可能是为了句子A走专家A，句子B走专家B，整体均匀但是单个样本不均匀
+                scores_for_seq_aux = scores_for_aux.view(bsz, seq_len, -1)# 恢复[batch, seq, experts]
+                ce = torch.zeros( #ce同样是为了各个专家的概率
+                    bsz, self.n_routed_experts, device=hidden_states.device
+                )
+                ce.scatter_add_( # 统计每个sequence用了多少次各专家
+                    1,
+                    topk_idx_for_aux_loss,
+                    torch.ones(bsz, seq_len * aux_topk, device=hidden_states.device), #seq_len*topk token数*topk设定数=每个seq总专家调用次数
+                ).div_(seq_len * aux_topk / self.n_routed_experts) # div作用,归一化到均匀期望,每专家期望 总调用次数/候选专家数 次
+                aux_loss = (ce * scores_for_seq_aux.mean(dim=1)).sum(
+                    dim=1
+                ).mean() * self.alpha # 每个sequence内部都做负载均衡，比batch更强
+            else: # batch级均衡
+                mask_ce = F.one_hot(
+                    topk_idx_for_aux_loss.view(-1), num_classes=self.n_routed_experts
+                )   # 上面的展平后[[0,1],[1,2]] -> [0,1,1,2],我们又进行onehot变成:[
+                    # [1,0,0,0],
+                    # [0,1,0,0],
+                    # [0,1,0,0],
+                    # [0,0,1,0]
+                    # ]
+                ce = mask_ce.float().mean(0)    # 每个专家的真实使用频率，沿row维度平均，即按列
+                Pi = scores_for_aux.mean(0)     # softmax后的完整概率，token1:[0.7,0.2,0.1,0]，token2:[0.1,0.6,0.2,0.1]
+                                                # 平均[0.4,0.4,0.15,0.05]，Gate理论上想给各专家多少概率
+                fi = ce * self.n_routed_experts #为了均匀分布时 fi≈1时更稳定
+                aux_loss = (Pi * fi).sum() * self.alpha
+        else:
+            aux_loss = scores.new_zeros(1).squeeze()
+        return topk_idx, topk_weight, aux_loss
+    
+
+class MoEFeedForward(nn.Module):
+    def __init__(self, config: MiniMindConfig):
+        super().__init__()
+        self.config = config
+        # 专家层
+        self.experts = nn.ModuleList(
+            [FeedForward(config) for _ in range(config.n_routed_experts)]
+        )
+        # 门控层
+        self.gate = MoEGate(config)
+        if config.n_shared_experts > 0:
+            self.shared_experts = nn.ModuleList(
+                [FeedForward(config) for _ in range(config.n_shared_experts)]
+            )
+
+    def forward(self, x):
+        identity = x
+        orig_shape = x.shape
+        bsz, seq_len, h = orig_shape
+
+        # 使用门控机制选择专家
+        topk_idx, topk_weight, aux_loss = self.gate(x)
+        # 展开x以便处理
+        x = x.view(-1, x.shape[-1]) # 变成[num_token,h]
+
+        flat_topk_idx = topk_idx.view(-1) # 展平
+        if self.training:
+            # 按照定义的num_experts_per_tok重复输入token
+            # 每个token安排num_experts_per_tok个专家处理
+            x = x.repeat_interleave(self.config.num_experts_per_tok, dim=0)
+            # y是空张量，和x形状相同
+            y = torch.empty_like(x, dtype=x.dtype)
+            # 遍历所有专家
+            for i, expert in enumerate(self.experts):
+                # 找到所有指向专家i的token
+                # 然后将这些token输入专家i进行处理
+                # 最后将结果放回y对应位置
+                expert_out = expert(x[flat_topk_idx == i])
+                if expert_out.shape[0] > 0:
+                    y[flat_topk_idx == i] = expert_out.to(y.dtype)
+                else:
+                    y[flat_topk_idx == i] = expert_out.to(y.dtype) + 0 * sum(
+                        p.sum() for p in expert.parameters()
+                        )
+            # 加权求和
+            # 最后的y意义是每个token经过专家处理后的加权结果
+            y = (y.view(*topk_weight.shape, -1) * topk_weight.unsqueeze(-1)).sum(dim=1)
+            y = y.view(*orig_shape)
+
+        # 如果是推理阶段
+        else:
+            y = self.moe_infer(x, flat_topk_idx, topk_weight.view(-1, 1)).view(
+                *orig_shape
+            )
+        if self.config.n_shared_experts > 0:
+            for expert in self.shared_experts:
+                y = y + expert(identity)
+        self.aux_loss = aux_loss
+        return y
+
+    @torch.no_grad()
+    # MoE推理方法
+    def moe_infer(self, x, flat_expert_indices, flat_expert_weights):
+        # 使用cache，创建一个和x形状相同的零张量
+        expert_cache = torch.zeros_like(x)
+        # 对专家索引进行排序，最后是[0,0,0,1,1,2,2,2,...]这样的顺序
+        # 分拣
+        idxs = flat_expert_indices.argsort()
+        # 统计每个专家被分配到的token数量
+        # 打包
+        tokens_per_expert = flat_expert_indices.bincount().cpu().numpy().cumsum(0)
+        # 计算每个token对应的专家索引
+        token_idxs = idxs // self.config.num_experts_per_tok
+        # 对每个打包好的包进行处理
+        for i, end_idx in enumerate(tokens_per_expert):
+            # 计算当前包的起始位置
+            start_idx = 0 if i == 0 else tokens_per_expert[i - 1]
+            if start_idx == end_idx:
+                continue
+            # 取出当前包对应的专家
+            expert = self.experts[i]
+            # 取出token对应的原始id
+            exp_token_idx = token_idxs[start_idx:end_idx]
+            # 取出token对应的数据
+            expert_tokens = x[exp_token_idx]
+            # 计算专家输出，一次性处理当前包的所有token
+            expert_out = expert(expert_tokens).to(expert_cache.dtype)
+            # 加权
+            expert_out.mul_(flat_expert_weights[idxs[start_idx:end_idx]])
+            # 将结果散点加到缓存中对应位置
+            expert_cache.scatter_add_(
+                0, exp_token_idx.view(-1, 1).repeat(1, x.shape[-1]), expert_out
+            )
+
+        return expert_cache
+
+
+
+
 # 好了，现在已经完成了想要的模块，直接把其拼成一个block就行
 class MokioMindBlock(nn.Module):
     def __init__(self, layer_id: int, args: MiniMindConfig):
@@ -329,8 +511,10 @@ class MokioMindModel(nn.Module):
             past_key_values[0][0].shape[1] if past_key_values[0] is not None else 0
         )
 
-        hidden_states = self.embed_tokens(input_ids) #输入的token id映射到向量
-
+        hidden_states = self.dropout(
+            self.embed_tokens(input_ids) #输入的token id映射到向量
+        )
+        
         position_embeddings = (self.freqs_cos[start_pos: start_pos + seq_len],
                                self.freqs_sin[start_pos: start_pos + seq_len]) #根据输入序列的长度，截取对应位置的RoPE编码
         
@@ -349,7 +533,19 @@ class MokioMindModel(nn.Module):
     
         hidden_states =self.norm(hidden_states) #最后的RMSNorm
         ##剩下的linear，softmax和toknizer解码器先不做,放到下面做
-        return hidden_states, presents
+
+        # MOE部分补充
+        aux_loss = sum(
+            [
+                layer.mlp.aux_loss
+                for layer in self.layers
+                if isinstance(
+                    layer.mlp, MoEFeedForward
+                )  # ！修正：原MoEFeedForaward拼写错误
+            ],
+            hidden_states.new_zeros(1).squeeze(),
+        )
+        return hidden_states, presents, aux_loss
     
 
 #封装成一个更高层的接口，方便后续添加语言模型头或者其他任务的头,即inear和foftmax层
@@ -381,7 +577,7 @@ class mokioMindForCausalLM(PreTrainedModel, GenerationMixin):
             labels=None,
             **args, # 其他补充的参数
     ):
-        hidden_states, past_key_values = self.model(
+        hidden_states, past_key_values, aux_loss= self.model(
             input_ids = input_ids,
             attention_mask = attention_mask,
             past_key_values = past_key_values,
@@ -400,18 +596,20 @@ class mokioMindForCausalLM(PreTrainedModel, GenerationMixin):
         #得自己计算loss在模型中
         loss = None
         if labels is not None:
-            x, y = logits[..., :-1, :].contiguous(), labels[..., 1:].contiguous()
-            loss = F.cross_entropy(x.view(-1, x.size(-1)), y.view(-1), ignore_index=-100)
-        # 最后输出的对象有哪些
-        # self.OUT.__setitem__("last_hidden_state",hidden_states) 
-        # self.OUT.__setitem__("logits",logits) 
-        # self.OUT.__setitem__("past_key_values",past_key_values)
+            shift_logits = logits[..., :-1, :].contiguous()
+            shift_labels = labels[..., 1:].contiguous()
+            loss = F.cross_entropy(
+                shift_logits.view(-1, shift_logits.size(-1)),
+                shift_labels.view(-1),
+                ignore_index=-100,
+            )
 
-        # return self.OUT 
-        return CausalLMOutputWithPast(
+        output = CausalLMOutputWithPast(
             loss=loss,
-            logits = logits,
-            past_key_values = past_key_values,
-            hidden_states = hidden_states,
+            logits=logits,
+            past_key_values=past_key_values,
+            hidden_states=hidden_states,
         )
-            
+        output.aux_loss = aux_loss
+        return output
+

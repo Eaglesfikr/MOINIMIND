@@ -33,7 +33,7 @@ def main():
     parser = argparse.ArgumentParser(description="MiniMind Pretrain Model Eval")
 
     parser.add_argument('--load_from', default='model', type=str)
-    parser.add_argument('--save_dir', default='out', type=str)
+    parser.add_argument('--save_dir', default='checkpoints', type=str)
 
     # 改成pretrain
     parser.add_argument('--weight', default='pretrain', type=str)
@@ -41,7 +41,7 @@ def main():
     parser.add_argument('--hidden_size', default=768, type=int)
     parser.add_argument('--num_hidden_layers', default=8, type=int)
 
-    parser.add_argument('--use_moe', default=0, type=int)
+    parser.add_argument('--use_moe', default=1, type=int)
     parser.add_argument('--inference_rope_scaling', action='store_true')
 
     parser.add_argument('--max_new_tokens', default=256, type=int)
