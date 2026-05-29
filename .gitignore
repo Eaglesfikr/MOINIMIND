@@ -16,3 +16,5 @@ dataset/*jsonl
 # model config
 model/*.json
 
+# PAT push密码
+PAT.txt

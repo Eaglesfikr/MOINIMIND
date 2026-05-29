@@ -1,0 +1,66 @@
+import torch
+from torch import optim, nn
+
+
+# 定义lora结构
+class LoRA(nn.Module):
+    def __init__(self, in_feature, out_feature, rank):
+        super().__inti__()
+        self.rank = rank
+        self.A = nn.linear(in_feature, rank, bias = False)
+        self.B = nn.linear(rank, out_feature, rank, bias = False)
+         # 矩阵A高斯初始化
+        self.A.weight.data.normal_(mean=0.0, std=0.02)
+        # 矩阵B全0初始化
+        self.B.weight.data.zero_()
+
+    def forward(self, x):
+        return self.B(self.A(x))
+    
+
+def apply_lora(model, rank =8):
+    device = next(model.parameters()).device
+    for name, module in model.named_modules(): #查看应用的模型是否有线性层，去得到A和B的特征维度（除去rank的那个维度）
+        if (
+            isinstance(module, nn.Linear)
+            and module.weight.shape[0] == module.weight.shape[1]
+        ): #是否有相应层级
+            lora = LoRA(module.weight.shape[0], module.weight.shape[1], rank =rank).to(device)
+            setattr(module, "lora", lora) # 添加模块名
+            original_forward = module.forward #原始输出
+
+            # 显式绑定，输出为原始输出加上lora输出
+            def forward_with_lora(x, layer1=original_forward, layer2=lora):
+                return layer1(x) + layer2(x)
+            
+            module.forward = forward_with_lora
+
+# 下面这两个直接粘贴就行
+def load_lora(model, path):
+    device = next(model.parameters()).device
+    state_dict = torch.load(path, map_location=device)
+    state_dict = {
+        (k[7:] if k.startswith("module.") else k): v for k, v in state_dict.items()
+    }
+
+    for name, module in model.named_modules():
+        if hasattr(module, "lora"):
+            lora_state = {
+                k.replace(f"{name}.lora.", ""): v
+                for k, v in state_dict.items()
+                if f"{name}.lora." in k
+            }
+            module.lora.load_state_dict(lora_state)
+
+
+def save_lora(model, path):
+    raw_model = getattr(model, "_orig_mod", model)
+    state_dict = {}
+    for name, module in raw_model.named_modules():
+        if hasattr(module, "lora"):
+            clean_name = name[7:] if name.startswith("module.") else name
+            lora_state = {
+                f"{clean_name}.lora.{k}": v for k, v in module.lora.state_dict().items()
+            }
+            state_dict.update(lora_state)
+    torch.save(state_dict, path)
