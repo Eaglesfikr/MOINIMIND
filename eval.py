@@ -5,7 +5,7 @@ import warnings
 import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM, TextStreamer
 from model.model import MiniMindConfig, mokioMindForCausalLM
-# from model.model_lora import *
+from model.model_lora import *
 from trainer.trainer_utils import setup_seed, get_model_params
 warnings.filterwarnings('ignore')
 
@@ -21,9 +21,9 @@ def init_model(args):
         moe_suffix = '_moe' if args.use_moe else ''
         ckp = f'../{args.save_dir}/{args.weight}_{args.hidden_size}{moe_suffix}.pth'
         model.load_state_dict(torch.load(ckp, map_location=args.device), strict=True)
-        # if args.lora_weight != 'None':
-        #     apply_lora(model)
-        #     load_lora(model, f'./{args.save_dir}/{args.lora_weight}_{args.hidden_size}.pth')
+        if args.lora_weight != 'None':
+            apply_lora(model)
+            load_lora(model, f'../{args.save_dir}/lora/{args.lora_weight}_{args.hidden_size}.pth')
     else:
         model = AutoModelForCausalLM.from_pretrained(args.load_from, trust_remote_code=True)
     get_model_params(model, model.config)
@@ -37,7 +37,12 @@ def main():
 
     # 改成pretrain
     parser.add_argument('--weight', default='pretrain', type=str)
-
+    parser.add_argument(
+        "--lora_weight",
+        default="None",
+        type=str,
+        help="LoRA权重名称（None表示不使用，可选：lora_identity, lora_medical）",
+    )
     parser.add_argument('--hidden_size', default=512, type=int)
     parser.add_argument('--num_hidden_layers', default=8, type=int)
 

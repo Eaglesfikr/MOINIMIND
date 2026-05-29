@@ -1,0 +1,246 @@
++-----------------------------------------------AutoDL-----------------------------------------------------+
+[32m目录说明:[0m
+╔═════════════════╦════════╦════╦═════════════════════════════════════════════════════════════════════════╗
+║目录             ║名称    ║速度║说明                                                                     ║
+╠═════════════════╬════════╬════╬═════════════════════════════════════════════════════════════════════════╣
+║/                ║系 统 盘║一般║实例关机数据不会丢失，可存放代码等。会随保存镜像一起保存。               ║
+║/root/autodl-tmp ║数 据 盘║ 快 ║实例关机数据不会丢失，可存放读写IO要求高的数据。但不会随保存镜像一起保存 ║
+║/root/autodl-fs  ║文件存储║一般║可以实现多实例间的文件同步共享，不受实例开关机和保存镜像的影响。         ║
+╚═════════════════╩════════╩════╩═════════════════════════════════════════════════════════════════════════╝
+[32mCPU[0m ：17 核心
+[32m内存[0m：60 GB
+[32mGPU [0m：NVIDIA GeForce RTX 4080 SUPER, 1
+[32m存储[0m：
+[32m  系 统 盘/               [0m：35% 11G/30G
+[32m  数 据 盘/root/autodl-tmp[0m：20% 9.7G/50G
+[32m  文件存储/root/autodl-fs [0m：0% 0/200G
++----------------------------------------------------------------------------------------------------------+
+[31m*注意: [0m
+[31m1.系统盘较小请将大的数据存放于数据盘或文件存储中，重置系统时数据盘和文件存储中的数据不受影响[0m
+[31m2.清理系统盘请参考：https://www.autodl.com/docs/qa1/[0m
+[31m3.终端中长期执行命令请使用screen等工具开后台运行，确保程序不受SSH连接中断影响：https://www.autodl.com/docs/daemon/[0m
+[?2004hroot@autodl-container-e7a74e8053-9e0f23fe:~/autodl-tmp/MOINIMIND# [Kroot@autodl-container-e7a74e8053-9e0f23fe:~/autodl-tmp/MOINIMIND# ls
+[?2004lLoRA_trainlog  MOEtrainLog  README.md     [0m[01;34mdataset[0m  main.py  [01;34mmodel[0m              pyproject.toml  uv.lock
+MOE_test_log   Pretrainlog  SFT_trainlog  eval.py  [01;34mmethod[0m   pretrain_test_log  [01;34mtrainer[0m
+[?2004hroot@autodl-container-e7a74e8053-9e0f23fe:~/autodl-tmp/MOINIMIND# lspython eval.py ls[Kpython trainer/train_pretrain.py --use_moe=1ls[Kpython trainer/train_pretrain.py --use_moe=1ls[K[K[Kpython trainer/train_lora.py 
+[?2004lModel Params: 30.02M
+Trainable Params: 30.024M
+LLM 总参数量: 30.155 M
+LoRA 参数量: 0.131 M
+LoRA 参数占比: 0.43%
+Epoch:[1/50](2/3) loss:3.343452 lr:0.000099960527 epoch_Time:0.0min:
+Epoch:[2/50](2/3) loss:3.377033 lr:0.000099753485 epoch_Time:0.0min:
+Epoch:[3/50](2/3) loss:3.238310 lr:0.000099369822 epoch_Time:0.0min:
+Epoch:[4/50](2/3) loss:3.081113 lr:0.000098811051 epoch_Time:0.0min:
+Epoch:[5/50](2/3) loss:3.068962 lr:0.000098079377 epoch_Time:0.0min:
+Epoch:[6/50](2/3) loss:3.175295 lr:0.000097177690 epoch_Time:0.0min:
+Epoch:[7/50](2/3) loss:3.166987 lr:0.000096109546 epoch_Time:0.0min:
+Epoch:[8/50](2/3) loss:3.204287 lr:0.000094879161 epoch_Time:0.0min:
+Epoch:[9/50](2/3) loss:3.166419 lr:0.000093491392 epoch_Time:0.0min:
+Epoch:[10/50](2/3) loss:2.996894 lr:0.000091951714 epoch_Time:0.0min:
+Epoch:[11/50](2/3) loss:3.005191 lr:0.000090266206 epoch_Time:0.0min:
+Epoch:[12/50](2/3) loss:2.858706 lr:0.000088441517 epoch_Time:0.0min:
+Epoch:[13/50](2/3) loss:3.043623 lr:0.000086484850 epoch_Time:0.0min:
+Epoch:[14/50](2/3) loss:2.809697 lr:0.000084403927 epoch_Time:0.0min:
+Epoch:[15/50](2/3) loss:2.885157 lr:0.000082206960 epoch_Time:0.0min:
+Epoch:[16/50](2/3) loss:2.814102 lr:0.000079902620 epoch_Time:0.0min:
+Epoch:[17/50](2/3) loss:2.810402 lr:0.000077500000 epoch_Time:0.0min:
+Epoch:[18/50](2/3) loss:2.847267 lr:0.000075008583 epoch_Time:0.0min:
+Epoch:[19/50](2/3) loss:2.714068 lr:0.000072438201 epoch_Time:0.0min:
+Epoch:[20/50](2/3) loss:2.772158 lr:0.000069798999 epoch_Time:0.0min:
+Epoch:[21/50](2/3) loss:2.677915 lr:0.000067101392 epoch_Time:0.0min:
+Epoch:[22/50](2/3) loss:2.634201 lr:0.000064356026 epoch_Time:0.0min:
+Epoch:[23/50](2/3) loss:2.505452 lr:0.000061573736 epoch_Time:0.0min:
+Epoch:[24/50](2/3) loss:2.633635 lr:0.000058765503 epoch_Time:0.0min:
+Epoch:[25/50](2/3) loss:2.465364 lr:0.000055942409 epoch_Time:0.0min:
+Epoch:[26/50](2/3) loss:2.600017 lr:0.000053115596 epoch_Time:0.0min:
+Epoch:[27/50](2/3) loss:2.463562 lr:0.000050296219 epoch_Time:0.0min:
+Epoch:[28/50](2/3) loss:2.473368 lr:0.000047495406 epoch_Time:0.0min:
+Epoch:[29/50](2/3) loss:2.451401 lr:0.000044724211 epoch_Time:0.0min:
+Epoch:[30/50](2/3) loss:2.374299 lr:0.000041993569 epoch_Time:0.0min:
+Epoch:[31/50](2/3) loss:2.348059 lr:0.000039314258 epoch_Time:0.0min:
+Epoch:[32/50](2/3) loss:2.297598 lr:0.000036696851 epoch_Time:0.0min:
+Epoch:[33/50](2/3) loss:2.403424 lr:0.000034151678 epoch_Time:0.0min:
+Epoch:[34/50](2/3) loss:2.256759 lr:0.000031688785 epoch_Time:0.0min:
+Epoch:[35/50](2/3) loss:2.427308 lr:0.000029317889 epoch_Time:0.0min:
+Epoch:[36/50](2/3) loss:2.328467 lr:0.000027048350 epoch_Time:0.0min:
+Epoch:[37/50](2/3) loss:2.267277 lr:0.000024889123 epoch_Time:0.0min:
+Epoch:[38/50](2/3) loss:2.170674 lr:0.000022848729 epoch_Time:0.0min:
+Epoch:[39/50](2/3) loss:2.291887 lr:0.000020935222 epoch_Time:0.0min:
+Epoch:[40/50](2/3) loss:2.277674 lr:0.000019156154 epoch_Time:0.0min:
+Epoch:[41/50](2/3) loss:2.195224 lr:0.000017518544 epoch_Time:0.0min:
+Epoch:[42/50](2/3) loss:2.176376 lr:0.000016028857 epoch_Time:0.0min:
+Epoch:[43/50](2/3) loss:2.362105 lr:0.000014692971 epoch_Time:0.0min:
+Epoch:[44/50](2/3) loss:2.238641 lr:0.000013516158 epoch_Time:0.0min:
+Epoch:[45/50](2/3) loss:2.205677 lr:0.000012503063 epoch_Time:0.0min:
+Epoch:[46/50](2/3) loss:2.269248 lr:0.000011657684 epoch_Time:0.0min:
+Epoch:[47/50](2/3) loss:2.117062 lr:0.000010983358 epoch_Time:0.0min:
+Epoch:[48/50](2/3) loss:2.125899 lr:0.000010482745 epoch_Time:0.0min:
+Epoch:[49/50](2/3) loss:2.110768 lr:0.000010157821 epoch_Time:0.0min:
+Epoch:[50/50](2/3) loss:2.152455 lr:0.000010009869 epoch_Time:0.0min:
+[?2004hroot@autodl-container-e7a74e8053-9e0f23fe:~/autodl-tmp/MOINIMIND# 
+[?2004l[?2004hroot@autodl-container-e7a74e8053-9e0f23fe:~/autodl-tmp/MOINIMIND# 
+[?2004l[?2004hroot@autodl-container-e7a74e8053-9e0f23fe:~/autodl-tmp/MOINIMIND# 
+[?2004l[?2004hroot@autodl-container-e7a74e8053-9e0f23fe:~/autodl-tmp/MOINIMIND# 
+[?2004l[?2004hroot@autodl-container-e7a74e8053-9e0f23fe:~/autodl-tmp/MOINIMIND# 
+[?2004l[?2004hroot@autodl-container-e7a74e8053-9e0f23fe:~/autodl-tmp/MOINIMIND# 
+[?2004l[?2004hroot@autodl-container-e7a74e8053-9e0f23fe:~/autodl-tmp/MOINIMIND# 
+[?2004l[?2004hroot@autodl-container-e7a74e8053-9e0f23fe:~/autodl-tmp/MOINIMIND# test
+[?2004l[?2004hroot@autodl-container-e7a74e8053-9e0f23fe:~/autodl-tmp/MOINIMIND# --------------------------------------------------------------------------------------------------- --------------------------------------------------------------------------------------------------------------------------------------------------------------------- -[KM[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[K
+[KM[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C
+[?2004lbash: -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------: command not found
+[?2004hroot@autodl-container-e7a74e8053-9e0f23fe:~/autodl-tmp/MOINIMIND# -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------M[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[K
+[KM[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------M[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[Ctest[K
+[KM[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[Cpython trainer/train_lora.py [K[K[K[K[K[K[K[K[K[K[K[K[K[K[K[K[K[K[K[K[K[K[K[K[K[K[K[K[Kpyth[K[K[K[Kpython[K[K[K[K[K[K[[Kpyt[K[K[Kpython eval.py --weight full_sft --lora_weight lora_identity
+[?2004lModel Params: 30.16M
+[0] 自动测试
+[1] 手动输入
+0
+
+Prompt:
+中国的首都是
+
+Completion:
+哪个州？中国的首都是伊拉克。
+
+
+[Generated Tokens]: 14
+[Speed]: 24.04 tokens/s
+
+
+Prompt:
+请解释Transformer的工作原理：
+
+Completion:
+Coursera、Best Mini和Ruby 的工作原理。Rejing是一种具有类似于某种特定的消息，它在不同的领域中都有应用。它可以通过使用数据来进行分析、分类、识别和归纳等方法，以实现对特定主题进行评估或总结。Recemberpando已经被广泛用于文本摘要、语音识别、自动翻译、文本摘要、文档摘要、生成文本、提取文本中的关键词提取技术等。
+
+
+[Generated Tokens]: 118
+[Speed]: 144.33 tokens/s
+
+
+Prompt:
+Python实现快速排序：
+
+Completion:
+
+```
+[10, 20, 32, 23, 30, 40]
+```
+这些数字是：
+```
+15
+这是一个示例代码，用于将数字按照从小到大的顺序排列：
+```
+12
+72
+18
+```这个循环会首先将数字转换为数字，然后使用Python内置的random库，将列表存储在变量`a`和`b`中。接着，使用内置的`r`函数来遍历数组并将其输出，以便更快地进行排序。
+
+
+[Generated Tokens]: 121
+[Speed]: 145.53 tokens/s
+
+
+Prompt:
+今天天气很好，我们
+
+Completion:
+谈到了“天气晴朗”的含义。这句话提醒我们，天气温暖宜人，人们很容易享受雨水。人们通常在出门时出门走，因为天气好，所以天气非常好。
+
+
+[Generated Tokens]: 52
+[Speed]: 147.93 tokens/s
+
+
+Prompt:
+人工智能未来的发展方向包括
+
+Completion:
+自动驾驶、语音识别、图像识别、智能客服、智能音箱等应用领域。
+智能音箱：智能家居
+AI 可以通过自然语言处理技术实现智能家居、智能医疗、智能交通等等。
+AI 技术：无人机
+
+
+[Generated Tokens]: 56
+[Speed]: 150.70 tokens/s
+
+[?2004hroot@autodl-container-e7a74e8053-9e0f23fe:~/autodl-tmp/MOINIMIND# python eval.py --weight full_sft --lora_weight lora_identity
+[?2004lModel Params: 30.16M
+[0] 自动测试
+[1] 手动输入
+1
+Prompt >>> ni  你好！你是谁？你都能做什么？
+
+Prompt:
+你好！你是谁？你都能做什么？
+
+Completion:
+
+
+
+[Generated Tokens]: 1
+[Speed]: 2.35 tokens/s
+
+Prompt >>> ^[[A^[[B        嘿，你好啊
+
+Prompt:
+嘿，你好啊
+
+Completion:
+！我是阿里云的Java和MySQL，很高兴认识你。你想听听我的经验吗？
+
+
+[Generated Tokens]: 31
+[Speed]: 133.49 tokens/s
+
+Prompt >>> 你有创造力吗？
+
+Prompt:
+你有创造力吗？
+
+Completion:
+作为一个AI，我并没有个人经验或知识，因此无法真正发展自己。我被设计用来提供信息、解答问题、解决问题和进行对话等任务，但我可以基于给用户提供的信息和资源。
+
+
+[Generated Tokens]: 47
+[Speed]: 154.70 tokens/s
+
+Prompt >>> 你是谁
+
+Prompt:
+你是谁
+
+Completion:
+？什么？我是阿里云开发的AI助手，我叫李华。
+
+
+[Generated Tokens]: 20
+[Speed]: 94.85 tokens/s
+
+Prompt >>> 你和openai是什么关系？
+
+Prompt:
+你和openai是什么关系？
+
+Completion:
+我在什么地方，为什么会有比以前更高的速度？我是AI助手，无法理解人类的“超越”模式，因此我无法提供答案。我不具备特定的时间管理能力，而是通过提供信息和解答，我可以提供帮助、帮助和解释这些任务。
+
+
+[Generated Tokens]: 66
+[Speed]: 149.99 tokens/s
+
+Prompt >>> 你和openai是什么关系？
+
+Prompt:
+你和openai是什么关系？
+
+Completion:
+我是计算机程序，提供信息和解答问题。请给出具体的帮助。
+
+
+[Generated Tokens]: 19
+[Speed]: 148.69 tokens/s
+
+Prompt >>> 
