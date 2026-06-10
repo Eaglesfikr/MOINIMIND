@@ -279,7 +279,6 @@ class RLAIFDataset(Dataset):
             tokenize=False,
             add_generation_prompt=True,
         )
-        # 加上引导语让模型生成
         prompt = post_processing_chat(prompt)
         return prompt, answer
 
@@ -288,15 +287,7 @@ class RLAIFDataset(Dataset):
         # 返回原始字符串，不做 tokenize，由 RL trainer 在线处理
         prompt, answer = self.create_chat_prompt(sample["conversations"])
 
-        # ！修正：返回 prompt 对应的 attention_mask token id 列表（由 RL trainer 决定是否使用）
-        prompt_input_ids = self.tokenizer(prompt).input_ids
-        attention_mask = (
-            (
-                torch.tensor(prompt_input_ids, dtype=torch.long)
-                != self.tokenizer.pad_token_id
-            )
-            .long()
-            .tolist()
-        )
+        return {"prompt": prompt, "answer": answer}
 
-        return {"prompt": prompt, "answer": answer, "attention_mask": attention_mask}
+
+

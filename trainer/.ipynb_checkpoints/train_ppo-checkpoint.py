@@ -160,6 +160,19 @@ def ppo_train_epoch(
             truncation=True,
             max_length=args.max_seq_len,
         ).to(args.device)
+
+        ###===================================DEBUG============================###
+        print("input_ids max =", enc.input_ids.max().item())
+        print("input_ids min =", enc.input_ids.min().item())
+        
+        # print(
+        #     "embedding size =",
+        #     actor_model.tok_embeddings.weight.shape[0]
+        # )
+        ###====================================================================###
+
+
+        
         # 计算每个prompt的长度（用于后续处理）
         prompt_lengths = enc.attention_mask.sum(dim=1)
 
@@ -433,7 +446,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--data_path",
         type=str,
-        default="./dataset/rlaif-mini.jsonl",
+        default="./dataset/rlaif.jsonl",
         help="RLAIF数据路径",
     )
 
@@ -525,9 +538,24 @@ if __name__ == "__main__":
 
     # 📚 Actor模型（策略模型）
     actor_model, tokenizer = init_model(lm_config, base_weight, device=args.device)
+
+    ##########======================DEBUG===================####
+    print("tokenizer vocab:", tokenizer.vocab_size)
+    print("model vocab:", actor_model.config.vocab_size)
+    # print("embedding size:",
+    #   actor_model.tok_embeddings.weight.shape[0])
+    ##########=================================================####
+    
     tokenizer.padding_side = "left"  # PPO需要左侧padding
     if tokenizer.pad_token_id is None:
+
+
+        ### ==============================================DEBUG==============================###
+        print("pad_token_id =", tokenizer.pad_token_id)
+        print("eos_token_id =", tokenizer.eos_token_id)
+        ###=================================================================================###
         tokenizer.pad_token = tokenizer.eos_token
+        
 
     # 📚 Old Actor模型（用于重要性采样）
     old_actor_model, _ = init_model(lm_config, base_weight, device=args.device)
@@ -546,8 +574,45 @@ if __name__ == "__main__":
     critic_model = critic_model.to(args.device)
 
     # 📚 Reward模型（奖励函数）
+    ##==================debug==========================
+    from transformers import AutoConfig
+
+    cfg = AutoConfig.from_pretrained(
+    args.reward_model_path,
+    trust_remote_code=True
+    )
+
+    # 🔥 强制改成 InternLM2 代码能识别的类型
+    cfg.rope_scaling = {
+        "type": "linear",   # 或 "dynamic"
+        "factor": 1.0
+    }
+    
+    print(cfg.rope_scaling)
+
+    from transformers.cache_utils import DynamicCache
+
+    from transformers.cache_utils import DynamicCache
+
+    if not hasattr(DynamicCache, "from_legacy_cache"):
+        @classmethod
+        def from_legacy_cache(cls, cache):
+            return cache
+        DynamicCache.from_legacy_cache = from_legacy_cache
+    
+    if not hasattr(DynamicCache, "to_legacy_cache"):
+        def to_legacy_cache(self):
+            return self
+        DynamicCache.to_legacy_cache = to_legacy_cache
+    
+    if not hasattr(DynamicCache, "get_seq_length"):
+        def get_seq_length(self):
+            return 0
+        DynamicCache.get_seq_length = get_seq_length
+    print(hasattr(DynamicCache, "from_legacy_cache"))
+    # =====================================================
     reward_model = AutoModel.from_pretrained(
-        args.reward_model_path, torch_dtype=torch.float16, trust_remote_code=True
+        args.reward_model_path, config=cfg, torch_dtype=torch.float16, trust_remote_code=True
     )
     reward_model = reward_model.to(args.device).eval().requires_grad_(False)
     reward_tokenizer = AutoTokenizer.from_pretrained(
