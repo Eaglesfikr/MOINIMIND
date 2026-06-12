@@ -1,0 +1,82 @@
++-----------------------------------------------AutoDL-----------------------------------------------------+
+[32m目录说明:[0m
+╔═════════════════╦════════╦════╦═════════════════════════════════════════════════════════════════════════╗
+║目录             ║名称    ║速度║说明                                                                     ║
+╠═════════════════╬════════╬════╬═════════════════════════════════════════════════════════════════════════╣
+║/                ║系 统 盘║一般║实例关机数据不会丢失，可存放代码等。会随保存镜像一起保存。               ║
+║/root/autodl-tmp ║数 据 盘║ 快 ║实例关机数据不会丢失，可存放读写IO要求高的数据。但不会随保存镜像一起保存 ║
+║/root/autodl-fs  ║文件存储║一般║可以实现多实例间的文件同步共享，不受实例开关机和保存镜像的影响。         ║
+╚═════════════════╩════════╩════╩═════════════════════════════════════════════════════════════════════════╝
+[32mCPU[0m ：12 核心
+[32m内存[0m：90 GB
+[32mGPU [0m：NVIDIA GeForce RTX 4080 SUPER, 1
+[32m存储[0m：
+[32m  系 统 盘/               [0m：46% 14G/30G
+[32m  数 据 盘/root/autodl-tmp[0m：29% 15G/50G
+[32m  文件存储/root/autodl-fs [0m：0% 0/200G
++----------------------------------------------------------------------------------------------------------+
+[31m*注意: [0m
+[31m1.系统盘较小请将大的数据存放于数据盘或文件存储中，重置系统时数据盘和文件存储中的数据不受影响[0m
+[31m2.清理系统盘请参考：https://www.autodl.com/docs/qa1/[0m
+[31m3.终端中长期执行命令请使用screen等工具开后台运行，确保程序不受SSH连接中断影响：https://www.autodl.com/docs/daemon/[0m
+[?2004hroot@autodl-container-1fa949a376-4761b412:~/autodl-tmp/MOINIMIND# [Kroot@autodl-container-1fa949a376-4761b412:~/autodl-tmp/MOINIMIND# ls
+[?2004l'=4.57.1'      LoRA_trainlog   MOEtrainLog    PPOtrainlog   [0m[01;34mREADME.assets[0m   SFT_trainlog   eval.py       [01;35mimage.png[0m   [01;34mmethod[0m   pretrain_test_log   [01;34mtrainer[0m
+ DPOtrainlog   MOE_test_log    PPO_test_log   Pretrainlog   README.md       [01;34mdataset[0m        [01;35mimage-1.png[0m   main.py     [01;34mmodel[0m    pyproject.toml      uv.lock
+[?2004hroot@autodl-container-1fa949a376-4761b412:~/autodl-tmp/MOINIMIND# python trainer/train_dpo.py  && poweroff
+[?2004l/root/autodl-tmp/MOINIMIND/trainer/train_dpo.py:309: FutureWarning: `torch.cuda.amp.autocast(args...)` is deprecated. Please use `torch.amp.autocast('cuda', args...)` instead.
+  nullcontext() if device_type == "cpu" else torch.cuda.amp.autocast(dtype=dtype)
+/root/autodl-tmp/MOINIMIND/trainer/trainer_utils.py:157: FutureWarning: You are using `torch.load` with `weights_only=False` (the current default value), which uses the default pickle module implicitly. It is possible to construct malicious pickle data which will execute arbitrary code during unpickling (See https://github.com/pytorch/pytorch/blob/main/SECURITY.md#untrusted-models for more details). In a future release, the default value for `weights_only` will be flipped to `True`. This limits the functions that could be executed during unpickling. Arbitrary objects will no longer be allowed to be loaded via this mode unless they are explicitly allowlisted by the user via `torch.serialization.add_safe_globals`. We recommend you start setting `weights_only=True` for any use case where you don't have full control of the loaded file. Please open an issue on GitHub for any issues related to this experimental feature.
+  weights = torch.load(weight_path, map_location=device)
+所加载Model可训练参数：30.024 百万
+策略模型总参数量：30.024 M
+所加载Model可训练参数：30.024 百万
+参考模型总参数量：30.024 M
+/root/autodl-tmp/MOINIMIND/trainer/train_dpo.py:345: FutureWarning: `torch.cuda.amp.GradScaler(args...)` is deprecated. Please use `torch.amp.GradScaler('cuda', args...)` instead.
+  scaler = torch.cuda.amp.GradScaler(enabled=(args.dtype == "float16"))
+Epoch:[1/1](100/4292) loss:0.693479 lr:0.000000039952 epoch_Time:12.0min:
+Epoch:[1/1](200/4292) loss:0.693197 lr:0.000000039807 epoch_Time:12.0min:
+Epoch:[1/1](300/4292) loss:0.692556 lr:0.000000039568 epoch_Time:12.0min:
+Epoch:[1/1](400/4292) loss:0.693030 lr:0.000000039234 epoch_Time:11.0min:
+Epoch:[1/1](500/4292) loss:0.692325 lr:0.000000038808 epoch_Time:11.0min:
+Epoch:[1/1](600/4292) loss:0.693199 lr:0.000000038292 epoch_Time:11.0min:
+Epoch:[1/1](700/4292) loss:0.692738 lr:0.000000037688 epoch_Time:10.0min:
+Epoch:[1/1](800/4292) loss:0.693208 lr:0.000000037001 epoch_Time:10.0min:
+Epoch:[1/1](900/4292) loss:0.692931 lr:0.000000036233 epoch_Time:10.0min:
+Epoch:[1/1](1000/4292) loss:0.693013 lr:0.000000035390 epoch_Time:10.0min:
+Epoch:[1/1](1100/4292) loss:0.692428 lr:0.000000034474 epoch_Time:9.0min:
+Epoch:[1/1](1200/4292) loss:0.692428 lr:0.000000033491 epoch_Time:9.0min:
+Epoch:[1/1](1300/4292) loss:0.692549 lr:0.000000032448 epoch_Time:9.0min:
+Epoch:[1/1](1400/4292) loss:0.692627 lr:0.000000031348 epoch_Time:8.0min:
+Epoch:[1/1](1500/4292) loss:0.692668 lr:0.000000030198 epoch_Time:8.0min:
+Epoch:[1/1](1600/4292) loss:0.693355 lr:0.000000029004 epoch_Time:8.0min:
+Epoch:[1/1](1700/4292) loss:0.692862 lr:0.000000027772 epoch_Time:8.0min:
+Epoch:[1/1](1800/4292) loss:0.692696 lr:0.000000026510 epoch_Time:7.0min:
+Epoch:[1/1](1900/4292) loss:0.692643 lr:0.000000025224 epoch_Time:7.0min:
+Epoch:[1/1](2000/4292) loss:0.692618 lr:0.000000023920 epoch_Time:7.0min:
+Epoch:[1/1](2100/4292) loss:0.692683 lr:0.000000022606 epoch_Time:6.0min:
+Epoch:[1/1](2200/4292) loss:0.692990 lr:0.000000021289 epoch_Time:6.0min:
+Epoch:[1/1](2300/4292) loss:0.693555 lr:0.000000019975 epoch_Time:6.0min:
+Epoch:[1/1](2400/4292) loss:0.691419 lr:0.000000018673 epoch_Time:5.0min:
+Epoch:[1/1](2500/4292) loss:0.693454 lr:0.000000017388 epoch_Time:5.0min:
+Epoch:[1/1](2600/4292) loss:0.691929 lr:0.000000016128 epoch_Time:5.0min:
+Epoch:[1/1](2700/4292) loss:0.693206 lr:0.000000014899 epoch_Time:5.0min:
+Epoch:[1/1](2800/4292) loss:0.691092 lr:0.000000013709 epoch_Time:4.0min:
+Epoch:[1/1](2900/4292) loss:0.693225 lr:0.000000012562 epoch_Time:4.0min:
+Epoch:[1/1](3000/4292) loss:0.692717 lr:0.000000011467 epoch_Time:4.0min:
+Epoch:[1/1](3100/4292) loss:0.692785 lr:0.000000010428 epoch_Time:3.0min:
+Epoch:[1/1](3200/4292) loss:0.692418 lr:0.000000009450 epoch_Time:3.0min:
+Epoch:[1/1](3300/4292) loss:0.692702 lr:0.000000008540 epoch_Time:3.0min:
+Epoch:[1/1](3400/4292) loss:0.692901 lr:0.000000007702 epoch_Time:3.0min:
+Epoch:[1/1](3500/4292) loss:0.693378 lr:0.000000006941 epoch_Time:2.0min:
+Epoch:[1/1](3600/4292) loss:0.692268 lr:0.000000006260 epoch_Time:2.0min:
+Epoch:[1/1](3700/4292) loss:0.692957 lr:0.000000005664 epoch_Time:2.0min:
+Epoch:[1/1](3800/4292) loss:0.692797 lr:0.000000005155 epoch_Time:1.0min:
+Epoch:[1/1](3900/4292) loss:0.693231 lr:0.000000004736 epoch_Time:1.0min:
+Epoch:[1/1](4000/4292) loss:0.693268 lr:0.000000004410 epoch_Time:1.0min:
+Epoch:[1/1](4100/4292) loss:0.693404 lr:0.000000004177 epoch_Time:1.0min:
+Epoch:[1/1](4200/4292) loss:0.693435 lr:0.000000004041 epoch_Time:0.0min:
+Epoch:[1/1](4292/4292) loss:0.693529 lr:0.000000004000 epoch_Time:0.0min:
+System has not been booted with systemd as init system (PID 1). Can't operate.
+Failed to connect to bus: Host is down
+Failed to talk to init daemon.
+[?2004hroot@autodl-container-1fa949a376-4761b412:~/autodl-tmp/MOINIMIND# 

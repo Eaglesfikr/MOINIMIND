@@ -16,7 +16,7 @@ from torch.nn.parallel import DistributedDataParallel  # 分布式数据并行
 from torch.utils.data import DataLoader, DistributedSampler  # 数据加载
 
 # MokioMind相关组件
-from model.MokioModel import MokioMindConfig  # 模型配置
+from model.model import MiniMindConfig  # 模型配置
 from dataset.lm_dataset import DPODataset  # DPO数据集
 from trainer.trainer_utils import (  # 训练工具函数
     get_lr,
@@ -250,7 +250,7 @@ if __name__ == "__main__":
     # 📚 DPO数据格式知识点
     # 数据包含chosen（偏好）和rejected（不偏好）回答配对
     parser.add_argument(
-        "--data_path", type=str, default="../dataset/dpo.jsonl", help="DPO训练数据路径"
+        "--data_path", type=str, default="./dataset/dpo.jsonl", help="DPO训练数据路径"
     )
 
     # 📚 DPO权重继承知识点
@@ -291,7 +291,7 @@ if __name__ == "__main__":
 
     # ========== 2. 配置目录、模型参数、检查ckp ==========
     os.makedirs(args.save_dir, exist_ok=True)
-    lm_config = MokioMindConfig(
+    lm_config = MiniMindConfig(
         hidden_size=args.hidden_size,
         num_hidden_layers=args.num_hidden_layers,
         use_moe=bool(args.use_moe),
