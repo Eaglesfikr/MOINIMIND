@@ -11,6 +11,7 @@ from torch.nn.parallel import DistributedDataParallel
 from torch.utils.data import DataLoader, DistributedSampler
 from torch.optim.lr_scheduler import CosineAnnealingLR
 from transformers import AutoTokenizer, AutoModel
+from transformers import PretrainedConfig
 
 __package__ = "trainer"
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
@@ -168,6 +169,13 @@ def grpo_train_epoch(
             return torch.stack(per_token_logps)
 
         per_token_logps = get_per_token_logps(model, outputs, completion_ids.size(1))
+        if torch.isnan(per_token_logps).any():
+            print("per_token_logps nan")
+            continue
+        
+        if torch.isinf(per_token_logps).any():
+            print("per_token_logps inf")
+            continue
         with torch.no_grad():
             ref_per_token_logps = get_per_token_logps(
                 ref_model, outputs, completion_ids.size(1)
@@ -178,12 +186,42 @@ def grpo_train_epoch(
             prompts, completions, reward_model, reward_tokenizer
         ).to(args.device)
 
+        # grouped_rewards = rewards.view(-1, args.num_generations)
+        # mean_r = grouped_rewards.mean(dim=1).repeat_interleave(args.num_generations)
+        # std_r = grouped_rewards.std(dim=1).repeat_interleave(args.num_generations)
+        # advantages = torch.clamp((rewards - mean_r) / (std_r + 1e-4), -10, 10)
+        # advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
         grouped_rewards = rewards.view(-1, args.num_generations)
-        mean_r = grouped_rewards.mean(dim=1).repeat_interleave(args.num_generations)
-        std_r = grouped_rewards.std(dim=1).repeat_interleave(args.num_generations)
-        advantages = torch.clamp((rewards - mean_r) / (std_r + 1e-4), -10, 10)
-        advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
 
+        mean_r = grouped_rewards.mean(dim=1, keepdim=True)
+        
+        std_r = grouped_rewards.std(
+            dim=1,
+            keepdim=True,
+            unbiased=False
+        )
+        
+        std_r = torch.clamp(std_r, min=1e-6)
+        
+        advantages = (grouped_rewards - mean_r) / std_r
+        
+        advantages = advantages.reshape(-1)
+        
+        advantages = torch.clamp(advantages, -5.0, 5.0)
+        
+        adv_std = advantages.std(unbiased=False)
+    
+        advantages = (
+            advantages - advantages.mean()
+        ) / (adv_std + 1e-6)
+        if torch.isnan(advantages).any():
+            print("advantages nan")
+            print("rewards =", rewards)
+            print("std_r =", std_r)
+            continue
+
+
+        # ======================================================
         is_eos = completion_ids == tokenizer.eos_token_id
         eos_idx = torch.full(
             (is_eos.size(0),), is_eos.size(1), dtype=torch.long, device=args.device
@@ -194,7 +232,15 @@ def grpo_train_epoch(
             <= eos_idx.unsqueeze(1)
         ).int()
 
+        # kl_div = ref_per_token_logps - per_token_logps
         kl_div = ref_per_token_logps - per_token_logps
+
+        if torch.isnan(kl_div).any():
+            print("kl_div nan")
+            continue
+        
+        kl_div = torch.clamp(kl_div, -20, 20)
+        
         per_token_kl = torch.exp(kl_div) - kl_div - 1
         per_token_loss = -(
             torch.exp(per_token_logps - per_token_logps.detach())
@@ -205,8 +251,26 @@ def grpo_train_epoch(
         loss = (
             (per_token_loss * completion_mask).sum(dim=1) / completion_mask.sum(dim=1)
         ).mean() / args.accumulation_steps
+        if torch.isnan(loss):
+            print("LOSS NAN")
+            print("reward mean =", rewards.mean())
+            print("adv mean =", advantages.mean())
+            print("adv std =", advantages.std())
+            continue
         loss.backward()
+        bad_grad = False
 
+        for name, p in model.named_parameters():
+            if p.grad is not None:
+                if torch.isnan(p.grad).any():
+                    print("nan grad:", name)
+                    bad_grad = True
+                    break
+        
+        if bad_grad:
+            optimizer.zero_grad()
+            continue
+        
         if step % args.accumulation_steps == 0:
             if args.grad_clip > 0:
                 torch.nn.utils.clip_grad_norm_(model.parameters(), args.grad_clip)
@@ -365,6 +429,9 @@ if __name__ == "__main__":
         max_position_embeddings=args.max_seq_len + args.max_gen_len,
         use_moe=bool(args.use_moe),
     )
+    print(type(lm_config))
+    print(isinstance(lm_config, PretrainedConfig))
+    print(MiniMindConfig)
     ckp_data = (
         lm_checkpoint(lm_config, weight=args.save_weight, save_dir="../checkpoints")
         if args.from_resume == 1
@@ -384,9 +451,14 @@ if __name__ == "__main__":
 
     base_weight = "reason" if args.reasoning == 1 else "full_sft"
 
+    # model, tokenizer = init_model(lm_config, base_weight, device=args.device)
+    # if tokenizer.pad_token_id is None:
+    #     tokenizer.pad_token = tokenizer.eos_token
     model, tokenizer = init_model(lm_config, base_weight, device=args.device)
     if tokenizer.pad_token_id is None:
         tokenizer.pad_token = tokenizer.eos_token
+    
+    tokenizer.padding_side = "left"
 
     ref_model, _ = init_model(lm_config, base_weight, device=args.device)
     ref_model = ref_model.eval().requires_grad_(False)
